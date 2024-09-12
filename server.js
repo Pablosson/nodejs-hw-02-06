@@ -2,10 +2,8 @@ const mongoose = require("mongoose");
 require("dotenv").config();
 const app = require("./app");
 
-const connection = mongoose.connect(process.env.DATABASE_URI, {
-  dbName: "db-contacts",
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
+const connection = mongoose.connect(process.env.DB_CONTACTS, {
+  dbName: "contacts",
 });
 
 const PORT = process.env.PORT || 3000;

@@ -20,8 +20,13 @@ const contactSchema = Joi.object({
 
 router.get("/", async (req, res, next) => {
   try {
-    const contacts = await listContacts();
-    res.json({
+    const { query } = req;
+    const pageOptions = {
+      page: parseInt(req.query.page, 10) || 0,
+      limit: parseInt(req.query.limit, 10) || 5,
+    };
+    const contacts = await listContacts(pageOptions, query);
+    res.status(200).json({
       status: 200,
       data: {
         result: contacts,
@@ -53,9 +58,9 @@ router.get("/:contactId", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   try {
-    const { error } = contactSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ message: error.message });
+    const contactBody = contactSchema.validate(req.body);
+    if (contactBody.error) {
+      return res.status(400).json({ message: contactBody.error.message });
     }
     const newContact = await addContact(req.body);
     res.status(201).json({ data: { newContact } });
@@ -85,9 +90,9 @@ router.delete("/:contactId", async (req, res, next) => {
 
 router.put("/:contactId", async (req, res, next) => {
   try {
-    const { error } = contactSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ message: error.message });
+    const contactBody = contactSchema.validate(req.body);
+    if (contactBody.error) {
+      return res.status(400).json({ message: contactBody.error.message });
     }
     const { contactId } = req.params;
     const updateOldContact = await updateContact(contactId, req.body);
@@ -102,16 +107,18 @@ router.put("/:contactId", async (req, res, next) => {
 
 router.patch("/:contactId/favorite", async (req, res, next) => {
   try {
+    const { contactId } = req.params;
     const { favorite } = req.body;
-    if (typeof favorite !== "boolean") {
-      return res.status(400).json({ message: "missing field favorite" });
+
+    if (favorite === undefined || favorite === null) {
+      return res.status(400).json({ message: "Missing field favorite" });
     }
 
-    const { contactId } = req.params;
     const setFavorite = await updateFavorite(contactId, favorite);
     if (!setFavorite) {
       return res.status(404).json({ message: "Contact not found" });
     }
+
     res.status(200).json({ data: { setFavorite } });
   } catch (error) {
     next(error);
