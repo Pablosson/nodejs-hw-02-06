@@ -20,24 +20,13 @@ const user = new Schema({
     type: String,
     default: null,
   },
+  avatarURL: {
+    type: String,
+  },
 });
 
 const User = mongoose.model("user", user);
 
-const register = async (credentials) => {
-  return User.create(credentials);
-};
-
-const login = async (user) => {
-  return User.find(user);
-};
-
-const logout = async (id, token) => {
-  return User.findByIdAndUpdate(id, { token });
-};
 module.exports = {
   User,
-  register,
-  login,
-  logout,
 };
