@@ -48,19 +48,29 @@ router.post("/signup", async (req, res, next) => {
 
 router.post("/login", async (req, res, next) => {
   const validators = userSchema.validate(req.body);
-  if (validators.error?.message) {
+  if (validators.error) {
     return res.status(400).json({ message: validators.error.message });
   }
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-  const passwordCompare = bcrypt.compare(password, user.password);
 
-  if (!user || !passwordCompare) {
-    return res.status(401).json({
-      message: "Incorrect login or password",
-    });
-  }
+  const { email, password } = req.body;
+
   try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Incorrect login or password",
+      });
+    }
+
+    const passwordCompare = await bcrypt.compare(password, user.password);
+
+    if (!passwordCompare) {
+      return res.status(401).json({
+        message: "Incorrect login or password",
+      });
+    }
+
     const payload = {
       id: user.id,
       email: user.email,
@@ -68,6 +78,7 @@ router.post("/login", async (req, res, next) => {
 
     const token = jwt.sign(payload, secret, { expiresIn: "1h" });
     await User.findByIdAndUpdate(user._id, { token });
+
     res.status(200).json({
       token,
       user: {
