@@ -12,6 +12,8 @@ const { upload } = require("../../middleware/upload");
 const path = require("path");
 const fs = require("fs/promises");
 const jimp = require("jimp");
+const { nanoid } = require("nanoid");
+const { verificationEmail } = require("../../service/email.send");
 
 const userSchema = Joi.object({
   password: Joi.string().required(),
@@ -19,6 +21,7 @@ const userSchema = Joi.object({
   subscription: Joi.string(),
   token: Joi.string(),
   avatarURL: Joi.string(),
+  verificationToken: Joi.string(),
 });
 
 router.post("/signup", async (req, res, next) => {
@@ -33,7 +36,7 @@ router.post("/signup", async (req, res, next) => {
       message: "Email is already in use",
     });
   }
-  const avatarURL = gravatar.url(email, { s: "250", d: "retro" });
+  const avatarURL = gravatar.url(email);
   try {
     const hashPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({
@@ -41,7 +44,9 @@ router.post("/signup", async (req, res, next) => {
       subscription,
       password: hashPassword,
       avatarURL,
+      verificationToken: nanoid(),
     });
+    verificationEmail(newUser.email, newUser.verificationToken);
     res.status(201).json({
       message: "Registration successful",
       user: {
@@ -60,24 +65,20 @@ router.post("/login", async (req, res, next) => {
   if (validators.error?.message) {
     return res.status(400).json({ message: validators.error.message });
   }
-
   const { email, password } = req.body;
   const user = await User.findOne({ email });
+  const passwordCompare = bcrypt.compare(password, user.password);
 
-  if (!user) {
+  if (!user || !passwordCompare) {
     return res.status(401).json({
       message: "Incorrect login or password",
     });
   }
-
-  const passwordCompare = await bcrypt.compare(password, user.password);
-
-  if (!passwordCompare) {
+  if (!user.verify) {
     return res.status(401).json({
-      message: "Incorrect login or password",
+      message: "email is not verifed",
     });
   }
-
   try {
     const payload = {
       id: user.id,
@@ -86,14 +87,79 @@ router.post("/login", async (req, res, next) => {
 
     const token = jwt.sign(payload, secret, { expiresIn: "1h" });
     await User.findByIdAndUpdate(user._id, { token });
-
     res.status(200).json({
       token,
       user: {
         email: user.email,
         subscription: user.subscription,
-        avatarURL: user.avatarURL,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/logout", auth, async (req, res, next) => {
+  const { _id } = req.user;
+  await User.findByIdAndUpdate(_id, { token: null });
+  res.status(204).json({});
+});
+
+router.get("/current", auth, (req, res, next) => {
+  const { email, subscription, id } = req.user;
+
+  res.status(200).json({
+    email,
+    subscription,
+    id,
+  });
+});
+
+router.get("/verify/:verificationToken", async (req, res, next) => {
+  try {
+    const verificationToken = req.params;
+    const user = await User.findOneAndUpdate(verificationToken, {
+      verify: true,
+      verificationToken: null,
+    });
+    if (!user) {
+      return res.status(404).json({
+        code: 404,
+        message: "User not found",
+        user,
+      });
+    }
+    res.status(200).json({
+      code: 200,
+      message: "Verification successful",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/verify", async (req, res, next) => {
+  const validators = userSchema.validate(req.body);
+  const { email } = req.body;
+  if (validators.error?.message) {
+    return res.status(400).json({ message: validators.error.message });
+  }
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: "No user" });
+    }
+    if (user.verify) {
+      return res
+        .status(400)
+        .json({ message: "Verification has already been passed" });
+    }
+    const newVerifyToken = user.verificationToken;
+    await verificationEmail(email, newVerifyToken);
+    res.status(200).json({
+      status: "success",
+      code: 200,
+      message: "Verification email sent",
     });
   } catch (error) {
     next(error);
@@ -109,18 +175,15 @@ router.patch(
     const { path: temporaryName, originalname } = req.file;
     const { id } = req.user;
     const avatarName = `${id}_${originalname}`;
-
     try {
       const newAvatar = path.join(avatarsDir, avatarName);
       await fs.rename(temporaryName, newAvatar);
-
-      const image = await jimp.read(newAvatar);
-      await image.cover(250, 250).writeAsync(newAvatar);
-
-      const avatarURL = `/avatars/${avatarName}`;
-
+      const avatarURL = path.join("public", "avatars", avatarName);
+      jimp.read(avatarURL, (error, imageName) => {
+        if (error) throw error;
+        imageName.cover(250, 250).write(avatarURL);
+      });
       await User.findByIdAndUpdate(id, { avatarURL }, { new: true });
-
       res.status(200).json({
         avatarURL,
       });
